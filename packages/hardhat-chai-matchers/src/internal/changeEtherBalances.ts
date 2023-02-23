@@ -1,8 +1,11 @@
-import type { BigNumber, BigNumberish, providers } from "ethers";
+import type EthersT from "ethers";
+// FVTODO check if this can be fixed with a rule option
+// eslint-disable-next-line no-duplicate-imports
+import type { Addressable, BigNumberish, TransactionResponse } from "ethers";
 import ordinal from "ordinal";
 
 import { buildAssert } from "../utils";
-import { getAddressOf, Account } from "./misc/account";
+import { getAddressOf } from "./misc/account";
 import {
   BalanceChangeOptions,
   getAddresses,
@@ -14,12 +17,11 @@ export function supportChangeEtherBalances(Assertion: Chai.AssertionStatic) {
     "changeEtherBalances",
     function (
       this: any,
-      accounts: Array<Account | string>,
+      accounts: Array<Addressable | string>,
       balanceChanges: BigNumberish[],
       options?: BalanceChangeOptions
     ) {
-      const { BigNumber } = require("ethers");
-
+      const { toBigInt } = require("ethers") as typeof EthersT;
       // capture negated flag before async code executes; see buildAssert's jsdoc
       const negated = this.__flags.negate;
 
@@ -29,19 +31,19 @@ export function supportChangeEtherBalances(Assertion: Chai.AssertionStatic) {
       }
 
       const checkBalanceChanges = ([actualChanges, accountAddresses]: [
-        Array<typeof BigNumber>,
+        bigint[],
         string[]
       ]) => {
         const assert = buildAssert(negated, checkBalanceChanges);
 
         assert(
-          actualChanges.every((change, ind) =>
-            change.eq(BigNumber.from(balanceChanges[ind]))
+          actualChanges.every(
+            (change, ind) => change === toBigInt(balanceChanges[ind])
           ),
           () => {
             const lines: string[] = [];
-            actualChanges.forEach((change: BigNumber, i) => {
-              if (!change.eq(BigNumber.from(balanceChanges[i]))) {
+            actualChanges.forEach((change: bigint, i) => {
+              if (change !== toBigInt(balanceChanges[i])) {
                 lines.push(
                   `Expected the ether balance of ${
                     accountAddresses[i]
@@ -57,8 +59,8 @@ export function supportChangeEtherBalances(Assertion: Chai.AssertionStatic) {
           },
           () => {
             const lines: string[] = [];
-            actualChanges.forEach((change: BigNumber, i) => {
-              if (change.eq(BigNumber.from(balanceChanges[i]))) {
+            actualChanges.forEach((change: bigint, i) => {
+              if (change === toBigInt(balanceChanges[i])) {
                 lines.push(
                   `Expected the ether balance of ${
                     accountAddresses[i]
@@ -88,32 +90,31 @@ export function supportChangeEtherBalances(Assertion: Chai.AssertionStatic) {
 }
 
 export async function getBalanceChanges(
-  transaction:
-    | providers.TransactionResponse
-    | Promise<providers.TransactionResponse>,
-  accounts: Array<Account | string>,
+  transaction: TransactionResponse | Promise<TransactionResponse>,
+  accounts: Array<Addressable | string>,
   options?: BalanceChangeOptions
-) {
+): Promise<bigint[]> {
   const txResponse = await transaction;
 
   const txReceipt = await txResponse.wait();
-  const txBlockNumber = txReceipt.blockNumber;
+  // FVTODO remove non-null assertion
+  const txBlockNumber = txReceipt!.blockNumber;
 
   const balancesAfter = await getBalances(accounts, txBlockNumber);
   const balancesBefore = await getBalances(accounts, txBlockNumber - 1);
 
   const txFees = await getTxFees(accounts, txResponse, options);
 
-  return balancesAfter.map((balance, ind) =>
-    balance.add(txFees[ind]).sub(balancesBefore[ind])
+  return balancesAfter.map(
+    (balance, ind) => balance + txFees[ind] - balancesBefore[ind]
   );
 }
 
 async function getTxFees(
-  accounts: Array<Account | string>,
-  txResponse: providers.TransactionResponse,
+  accounts: Array<Addressable | string>,
+  txResponse: TransactionResponse,
   options?: BalanceChangeOptions
-) {
+): Promise<bigint[]> {
   return Promise.all(
     accounts.map(async (account) => {
       if (
@@ -121,14 +122,15 @@ async function getTxFees(
         (await getAddressOf(account)) === txResponse.from
       ) {
         const txReceipt = await txResponse.wait();
-        const gasPrice = txReceipt.effectiveGasPrice ?? txResponse.gasPrice;
-        const gasUsed = txReceipt.gasUsed;
-        const txFee = gasPrice.mul(gasUsed);
+        // FVTODO remove non-null assertions
+        const gasPrice = txReceipt!.gasPrice ?? txResponse.gasPrice;
+        const gasUsed = txReceipt!.gasUsed;
+        const txFee = gasPrice * gasUsed;
 
         return txFee;
       }
 
-      return 0;
+      return 0n;
     })
   );
 }

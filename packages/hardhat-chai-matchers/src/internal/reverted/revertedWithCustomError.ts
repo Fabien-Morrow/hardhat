@@ -1,3 +1,5 @@
+import type EthersT from "ethers";
+
 import { AssertionError } from "chai";
 
 import { buildAssert, Ssfi } from "../../utils";
@@ -58,6 +60,8 @@ export function supportRevertedWithCustomError(
       };
 
       const onError = (error: any) => {
+        const { toBeHex } = require("ethers") as typeof EthersT;
+
         const assert = buildAssert(negated, onError);
 
         const returnData = getReturnDataFromError(error);
@@ -76,9 +80,9 @@ export function supportRevertedWithCustomError(
         } else if (decodedReturnData.kind === "Panic") {
           assert(
             false,
-            `Expected transaction to be reverted with custom error '${expectedCustomErrorName}', but it reverted with panic code ${decodedReturnData.code.toHexString()} (${
-              decodedReturnData.description
-            })`
+            `Expected transaction to be reverted with custom error '${expectedCustomErrorName}', but it reverted with panic code ${toBeHex(
+              decodedReturnData.code
+            )} (${decodedReturnData.description})`
           );
         } else if (decodedReturnData.kind === "Custom") {
           if (decodedReturnData.id === expectedCustomError.id) {

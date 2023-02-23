@@ -1,18 +1,15 @@
-import type {
-  providers,
-  utils as EthersUtils,
-  Contract,
-  Transaction,
-} from "ethers";
+import type EthersT from "ethers";
+// eslint-disable-next-line no-duplicate-imports
+import type { Contract, Transaction } from "ethers";
 import { AssertionError } from "chai";
 import util from "util";
 import ordinal from "ordinal";
 
 import { AssertWithSsfi, buildAssert, Ssfi } from "../utils";
 
-type EventFragment = EthersUtils.EventFragment;
-type Interface = EthersUtils.Interface;
-type Provider = providers.Provider;
+type EventFragment = EthersT.EventFragment;
+type Interface = EthersT.Interface;
+type Provider = EthersT.Provider;
 
 export const EMIT_CALLED = "emitAssertionCalled";
 
@@ -20,7 +17,7 @@ async function waitForPendingTransaction(
   tx: Promise<Transaction> | Transaction | string,
   provider: Provider
 ) {
-  let hash: string | undefined;
+  let hash: string | null;
   if (tx instanceof Promise) {
     ({ hash } = await tx);
   } else if (typeof tx === "string") {
@@ -28,7 +25,7 @@ async function waitForPendingTransaction(
   } else {
     ({ hash } = tx);
   }
-  if (hash === undefined) {
+  if (hash === null) {
     throw new Error(`${JSON.stringify(tx)} is not a valid transaction`);
   }
   return provider.waitForTransaction(hash);
@@ -47,28 +44,29 @@ export function supportEmit(
 
       const promise = this.then === undefined ? Promise.resolve() : this;
 
-      const onSuccess = (receipt: providers.TransactionReceipt) => {
+      const onSuccess = async (receipt: EthersT.TransactionReceipt) => {
         const assert = buildAssert(negated, onSuccess);
 
-        let eventFragment: EventFragment | undefined;
+        let eventFragment: EventFragment | null = null;
         try {
           eventFragment = contract.interface.getEvent(eventName);
         } catch (e) {
           // ignore error
         }
 
-        if (eventFragment === undefined) {
+        if (eventFragment === null) {
           throw new AssertionError(
             `Event "${eventName}" doesn't exist in the contract`
           );
         }
 
-        const topic = contract.interface.getEventTopic(eventFragment);
+        const topic = eventFragment.topicHash;
+        const contractAddress = await contract.getAddress();
         this.logs = receipt.logs
           .filter((log) => log.topics.includes(topic))
           .filter(
-            (log) =>
-              log.address.toLowerCase() === contract.address.toLowerCase()
+            // FVTODO remove non-null assertion
+            (log) => log.address.toLowerCase() === contractAddress.toLowerCase()
           );
 
         assert(
@@ -80,8 +78,11 @@ export function supportEmit(
         chaiUtils.flag(this, "contract", contract);
       };
 
+      // FVTODO improve this; runner might be null or not a provider,
+      // at the very least we should assert this expectation
+      const provider: any = contract.runner;
       const derivedPromise = promise
-        .then(() => waitForPendingTransaction(tx, contract.provider))
+        .then(() => waitForPendingTransaction(tx, provider))
         .then(onSuccess);
 
       chaiUtils.flag(this, EMIT_CALLED, true);
@@ -124,11 +125,11 @@ function assertArgsArraysEqual(
   assert: AssertWithSsfi,
   ssfi: Ssfi
 ) {
-  const { utils } = require("ethers") as { utils: typeof EthersUtils };
-
+  const ethers = require("ethers") as typeof EthersT;
+  // FVTODO remove non-null assertion
   const actualArgs = (
     chaiUtils.flag(context, "contract").interface as Interface
-  ).parseLog(log).args;
+  ).parseLog(log)!.args;
   const eventName = chaiUtils.flag(context, "eventName");
   assert(
     actualArgs.length === expectedArgs.length,
@@ -159,7 +160,7 @@ function assertArgsArraysEqual(
       }
     } else if (expectedArgs[index] instanceof Uint8Array) {
       new Assertion(actualArgs[index], undefined, ssfi, true).equal(
-        utils.hexlify(expectedArgs[index])
+        ethers.hexlify(expectedArgs[index])
       );
     } else if (
       expectedArgs[index]?.length !== undefined &&
@@ -184,10 +185,10 @@ function assertArgsArraysEqual(
           expectedArgs[index],
           "The actual value was an indexed and hashed value of the event argument. The expected value provided to the assertion should be the actual event argument (the pre-image of the hash). You provided the hash itself. Please supply the the actual event argument (the pre-image of the hash) instead."
         );
-        const expectedArgBytes = utils.isHexString(expectedArgs[index])
-          ? utils.arrayify(expectedArgs[index])
-          : utils.toUtf8Bytes(expectedArgs[index]);
-        const expectedHash = utils.keccak256(expectedArgBytes);
+        const expectedArgBytes = ethers.isHexString(expectedArgs[index])
+          ? ethers.toBeArray(expectedArgs[index]) // FVTODO validate than ethers.toBeArray is the same as utils.arrayify in v5
+          : ethers.toUtf8Bytes(expectedArgs[index]);
+        const expectedHash = ethers.keccak256(expectedArgBytes);
         new Assertion(actualArgs[index].hash, undefined, ssfi, true).to.equal(
           expectedHash,
           `The actual value was an indexed and hashed value of the event argument. The expected value provided to the assertion was hashed to produce ${expectedHash}. The actual hash and the expected hash did not match`

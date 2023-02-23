@@ -1,5 +1,3 @@
-import type { BigNumber } from "ethers";
-
 import { AssertionError } from "chai";
 
 import { HardhatChaiMatchersDecodingError } from "../errors";
@@ -51,7 +49,7 @@ type DecodedReturnData =
     }
   | {
       kind: "Panic";
-      code: BigNumber;
+      code: bigint;
       description: string;
     }
   | {
@@ -79,7 +77,7 @@ export function decodeReturnData(returnData: string): DecodedReturnData {
     };
   } else if (returnData.startsWith(PANIC_CODE_PREFIX)) {
     const encodedReason = returnData.slice(PANIC_CODE_PREFIX.length);
-    let code: BigNumber;
+    let code: bigint;
     try {
       code = abi.decode(["uint256"], `0x${encodedReason}`)[0];
     } catch (e: any) {
